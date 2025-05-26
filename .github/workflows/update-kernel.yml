@@ -1,0 +1,70 @@
+# .github/workflows/update-kernel.yml
+
+name: Update Kernel Sources Daily
+
+on:
+  schedule:
+    - cron: '30 18 * * *' # 18:30 UTC = 00:00 IST (Asia/Kolkata)
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  update-kernel:
+    name: Update Kernel Sources
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Kolkata # Set time zone for logs, not affecting cron directly
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          repository: fatalcoder524/oneplus-kernel-sm8550
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Git Config
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Remove existing content
+        run: |
+          rm -rf kernel_platform
+          rm -rf vendor
+          rm -rf .source_date_epoch_dir
+          rm -rf .gitkeep || true
+
+      - name: Clone Common Kernel
+        run: |
+          git clone --depth 1 --branch oneplus/sm8550_v_15.0.0_oneplus11 \
+            https://github.com/OnePlusOSS/android_kernel_common_oneplus_sm8550.git  \
+            kernel_platform/common
+
+          rm -rf kernel_platform/common/.git
+
+      - name: Clone Modules & DT
+        run: |
+          git clone --depth 1 --branch oneplus/sm8550_v_15.0.0_oneplus11 \
+            https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8550.git  \
+            temp-modules
+
+          rm -rf temp-modules/.git
+          shopt -s dotglob
+          cp -a temp-modules/* .
+          rm -rf temp-modules
+
+      - name: Check for Changes
+        id: changes
+        run: |
+          git add .
+          if git diff --cached --exit-code; then
+            echo "{has_changes}={false}" >> $GITHUB_OUTPUT
+          else
+            echo "{has_changes}={true}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit & Push if Changed
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git commit -m "Auto-update kernel sources"
+          git push origin main
